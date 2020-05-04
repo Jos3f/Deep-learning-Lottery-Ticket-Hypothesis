@@ -94,6 +94,7 @@ class IterativeTrainer:
             # Update masks by pruning
             masks = self.prune(masks, layers)
             # Train with our new masking
+            self.model.reset()
             self.model.train(masks)
             # Get the new updated layer weights
             layers = self.model.get_trainable_weights()
