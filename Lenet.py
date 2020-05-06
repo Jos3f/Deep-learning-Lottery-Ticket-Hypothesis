@@ -49,7 +49,7 @@ class Lenet:
         """
         Reset network to original weights.
         """
-        self.network.set_weigths(self.initial_weights)
+        self.network.set_weights(self.initial_weights)
 
         return
 
