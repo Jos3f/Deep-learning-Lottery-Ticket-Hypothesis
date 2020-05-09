@@ -46,11 +46,11 @@ class Lenet:
 
         self._add_layer(Flatten(input_shape=inp))
 
-        self._add_layer(Dense(300, activation="relu", kernel_initializer="glorot_normal"))
-        if self._use_dropout: self._add_layer(Dropout(0.2))
-        self._add_layer(Dense(100, activation="relu", kernel_initializer="glorot_normal"))
-        if self._use_dropout: self._add_layer(Dropout(0.2))
-        self._add_layer(Dense(10, activation="softmax", kernel_initializer="glorot_normal"))
+        self._add_layer(Dense(300, name='dense-1', activation="relu", kernel_initializer="glorot_normal"))
+        if self._use_dropout: self._add_layer(Dropout(0.2, name='dropout-1'))
+        self._add_layer(Dense(100, name= 'dense-2', activation="relu", kernel_initializer="glorot_normal"))
+        if self._use_dropout: self._add_layer(Dropout(0.1, name='dropout-2'))
+        self._add_layer(Dense(10, name='dense-3', activation="softmax", kernel_initializer="glorot_normal"))
         self._weight_layers.extend(['dense-1', 'dense-2', 'dense-3'])
 
     def _compile(self):
@@ -105,14 +105,15 @@ class Lenet:
         Dict keys are layer names and dict values are the layers in numpy format.
         Could be named like this: {'layer0': w, 'layer1': w, 'layer2': w}
         """
-        t_weigths = self._model.get_weights()
-        dic_w = {}
-        name = "layers"
-        for i in range(len(t_weigths)):
-            name = name[:-1] + str(i)
-            dic_w[name] = t_weigths[i]   
+        weights = {}
+        for l in self._weight_layers:
+            layer = self._get_layer(l)
 
-        return dic_w
+            # Forgetting about bias for now
+            weights[l] = layer.get_weights()[0]
+
+
+        return weights
     
     def set_pruning(self, prune_percentages=None):
         """
@@ -160,6 +161,7 @@ class Lenet:
         :param name: String
         :return: keras layer
         """
+        print(name + " " + str(self._prune_percentages))
         return self._model.get_layer(
              ("prune_low_magnitude_" + name)
              if self._prune_percentages is not None and name in self._prune_percentages
