@@ -2,6 +2,10 @@ import numpy as np
 import copy
 import tensorflow as tf
 from Lenet import Lenet
+from ConvModel import ConvModel
+from tensorflow.keras.datasets import cifar10
+from tensorflow import keras
+
 
 
 
@@ -68,8 +72,9 @@ class IterativeTrainer:
 
     iterations = 1  # Number of iterations
     model = None  # Store the Model object here
+    pruning_percentages = None
 
-    def __init__(self, model, iterations=1):
+    def __init__(self, model, iterations=1, pruning_percentages={}):
         """
         Args:
             model: The model we want to iteratively prune
@@ -77,6 +82,7 @@ class IterativeTrainer:
         """
         self.model = model
         self.iterations = iterations
+        self.pruning_percentages = pruning_percentages
 
 
     def train_iter(self, iterations, x_train, y_train, x_test,  y_test):
@@ -85,25 +91,40 @@ class IterativeTrainer:
         """
         # Train full model once first
         # self.model.train()
-        self.model.train(x_train, y_train, x_test, y_test)
+        layer_names = self.model.get_layer_names()
+
+        self.model.train(x_train, y_train, iterations)
+        self.model.evaluate(x_test, y_test)
 
         # Initial masks are set to 1. This corresponds to not including all weights
-        masks = {}
+        '''masks = {}
         layers = self.model.get_trainable_weights()
         for key, weights in layers.items():
-            masks[key] = np.ones_like(weights)
+            masks[key] = np.ones_like(weights)'''
+
+        temp_pruning_percentages = self.pruning_percentages
 
         # Start the iterative pruning process
-        for it in range(iterations):
-            print("Iteration {}".format(it + 1))
-            # Update masks by pruning
+        for it in range(1, self.iterations + 1):
+            print("Iteration {}".format(it))
+            # Update pruning percentages
+            temp_pruning_percentages = dict((name, self.update_percentages(it, self.pruning_percentages[name])) for name in self.pruning_percentages)
+
+            # Update model pruning
+            self.model.set_pruning(temp_pruning_percentages)
+
+            # Train and evaluate model
+            self.model.train(x_train, y_train, iterations)
+            self.model.evaluate(x_test, y_test)
+
+            '''# Update masks by pruning
             masks = self.prune(masks, layers)
             # Train with our new masking
             self.model.reset()
             # self.model.train()
             self.model.train(x_train, y_train, x_test,  y_test, masks)
             # Get the new updated layer weights
-            layers = self.model.get_trainable_weights()
+            layers = self.model.get_trainable_weights()'''
 
 
     def prune(self, masks, layers):
@@ -134,8 +155,8 @@ class IterativeTrainer:
 
 
 def main():
-    """Begin with lenet"""
-    mnist = tf.keras.datasets.mnist
+    '''Begin with lenet'''
+    '''mnist = tf.keras.datasets.mnist
     (x_train, y_train), (x_test, y_test) = mnist.load_data()
     print(x_train.shape)
 
@@ -145,7 +166,24 @@ def main():
     # lenet_net.train(x_train, y_train, x_test,  y_test)
 
     iter_trainer = IterativeTrainer(lenet_net)
-    iter_trainer.train_iter(5, x_train, y_train, x_test,  y_test)
+    iter_trainer.train_iter(5, x_train, y_train, x_test,  y_test)'''
+
+    '''Convmodel'''
+    K = 10
+    (x_train, y_train), (x_test, y_test) = cifar10.load_data()
+    x_train = x_train.astype('float32')[:600]
+    x_test = x_test.astype('float32')[:600]
+    input_data_shape = x_train[0].shape
+
+    y_train = keras.utils.to_categorical(y_train, K)[:600]
+    y_test = keras.utils.to_categorical(y_test, K)[:600]
+
+    conv = ConvModel(input_data_shape)
+    pruning = dict((name, 0.2) for name in conv.get_layer_names())
+    iter_trainer = IterativeTrainer(conv, iterations=20, pruning_percentages=pruning)
+    iter_trainer.train_iter(10, x_train, y_train, x_test,  y_test)
+
+
     # 1: Create model
     # 2: Create IterativeTrainer with model
     # 3: Call IterativeTrainer.train_iter()
