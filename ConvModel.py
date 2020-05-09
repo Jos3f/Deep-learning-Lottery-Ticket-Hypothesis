@@ -1,4 +1,4 @@
-from keras.datasets import cifar10
+from tensorflow.keras.datasets import cifar10
 from tensorflow import keras
 import tensorflow as tf
 import numpy as np
@@ -15,13 +15,16 @@ class ConvModel:
     Conv-2,4 and 6 model class with the functions needed for iterative pruning
     """
 
-    def __init__(self, model_name='conv-6', use_dropout=False):
+    input_data_shape = 1
+
+    def __init__(self, input_data_shape, model_name='conv-6', use_dropout=False):
 
         # Hyper-params that can be changed
         self.K = 10
         self.learning_rate = 0.0003
         self.batch_size = 60
 
+        self.input_data_shape = input_data_shape
         self._use_dropout = use_dropout
 
         assert model_name in ['conv-2', 'conv-4', 'conv-6'], "Use Conv-2, Conv-4 or Conv-6 model"
@@ -49,7 +52,7 @@ class ConvModel:
         self._weight_layers = []
         self._model = Sequential()
 
-        self._add_layer(Conv2D(64, (3, 3), name='conv-1', padding='same', activation='relu', input_shape=x_train[0].shape, kernel_initializer='glorot_normal'))
+        self._add_layer(Conv2D(64, (3, 3), name='conv-1', padding='same', activation='relu', input_shape=self.input_data_shape, kernel_initializer='glorot_normal'))
         self._add_layer(Conv2D(64, (3, 3), name='conv-2', padding='same', activation='relu', kernel_initializer='glorot_normal'))
         self._add_layer(MaxPooling2D((2, 2)))
         self._weight_layers.extend(['conv-1', 'conv-2'])
@@ -204,11 +207,13 @@ if __name__ == '__main__':
     (x_train, y_train), (x_test, y_test) = cifar10.load_data()
     x_train = x_train.astype('float32')[:600]
     x_test = x_test.astype('float32')[:600]
+    input_data_shape = x_train[0].shape
+
 
     y_train = keras.utils.to_categorical(y_train, K)[:600]
     y_test = keras.utils.to_categorical(y_test, K)[:600]
 
-    conv = ConvModel()
+    conv = ConvModel(input_data_shape)
 
     conv.train(x_train, y_train, iterations=10)
     conv.evaluate(x_test, y_test)
