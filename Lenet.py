@@ -1,4 +1,4 @@
-import numpy as np 
+import numpy as np
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Flatten, Dense, Dropout
@@ -15,10 +15,10 @@ class Lenet:
     prune_percentages = None
 
     def __init__(self, use_dropout=False):
-       
+
         # Hyper-params that can be changed
         self.K = 10
-        self.learning_rate = 1.2*(10**-3)
+        self.learning_rate = 1.2 * (10 ** -3)
         self.batch_size = 60
 
         self._use_dropout = use_dropout
@@ -39,7 +39,7 @@ class Lenet:
 
         return
 
-    def _build(self, inp=(28,28)):
+    def _build(self, inp=(28, 28)):
 
         self._weight_layers = []
         self._model = Sequential()
@@ -48,7 +48,7 @@ class Lenet:
 
         self._add_layer(Dense(300, name='dense-1', activation="relu", kernel_initializer="glorot_normal"))
         if self._use_dropout: self._add_layer(Dropout(0.2, name='dropout-1'))
-        self._add_layer(Dense(100, name= 'dense-2', activation="relu", kernel_initializer="glorot_normal"))
+        self._add_layer(Dense(100, name='dense-2', activation="relu", kernel_initializer="glorot_normal"))
         if self._use_dropout: self._add_layer(Dropout(0.1, name='dropout-2'))
         self._add_layer(Dense(10, name='dense-3', activation="softmax", kernel_initializer="glorot_normal"))
         self._weight_layers.extend(['dense-1', 'dense-2', 'dense-3'])
@@ -58,8 +58,8 @@ class Lenet:
         loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
 
         self._model.compile(optimizer=opt,
-                loss=loss_fn,
-                metrics=['accuracy'])
+                            loss=loss_fn,
+                            metrics=['accuracy'])
 
     def _add_layer(self, layer):
         """
@@ -85,8 +85,9 @@ class Lenet:
         """
         eval = self._model.evaluate(x, y)
         print("Accuracy: " + str(eval[1]) + ", Loss: " + str(eval[0]))
+        return eval
 
-    def train(self, x_train, y_train, iterations=1000):
+    def train(self, x_train, y_train, iterations=50000, early_stopping=False):
         """
         Train the network. If we want pruning the method set pruning should be called prior to this
         :param x_train: training inputs
@@ -95,9 +96,13 @@ class Lenet:
 
         """
 
-        epochs = int(iterations * self.batch_size / x_train.shape[0])
-        self._model.fit(x_train, y_train, self.batch_size, epochs, callbacks=[tfmot.sparsity.keras.UpdatePruningStep()])
+        callbacks = [tfmot.sparsity.keras.UpdatePruningStep()]
+        if early_stopping:
+            early_stopping = tf.keras.callbacks.EarlyStopping(monitor="accuracy", patience=1)
+            callbacks.append(early_stopping)
 
+        epochs = int(iterations * self.batch_size / x_train.shape[0])
+        return self._model.fit(x_train, y_train, self.batch_size, epochs, callbacks=callbacks, validation_split=0.2)
 
     def _get_trainable_weights(self):
         """
@@ -112,9 +117,8 @@ class Lenet:
             # Forgetting about bias for now
             weights[l] = layer.get_weights()[0]
 
-
         return weights
-    
+
     def set_pruning(self, prune_percentages=None):
         """
         This method resets the network, applies pruning that will be used on next training round and re-initializes
@@ -163,7 +167,7 @@ class Lenet:
         """
         print(name + " " + str(self._prune_percentages))
         return self._model.get_layer(
-             ("prune_low_magnitude_" + name)
-             if self._prune_percentages is not None and name in self._prune_percentages
-             else name
+            ("prune_low_magnitude_" + name)
+            if self._prune_percentages is not None and name in self._prune_percentages
+            else name
         )

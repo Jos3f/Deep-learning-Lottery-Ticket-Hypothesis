@@ -117,8 +117,9 @@ class ConvModel:
         """
         eval = self._model.evaluate(x, y)
         print("Accuracy: " + str(eval[1]) + ", Loss: " + str(eval[0]))
+        return eval
 
-    def train(self, x_train, y_train, iterations=1000):
+    def train(self, x_train, y_train, iterations=30000, early_stopping=False):
         """
         Train the network. If we want pruning the method set pruning should be called prior to this
         :param x_train: training inputs
@@ -127,8 +128,13 @@ class ConvModel:
 
         """
 
+        callbacks = [tfmot.sparsity.keras.UpdatePruningStep()]
+        if early_stopping:
+            early_stopping = tf.keras.callbacks.EarlyStopping(monitor="accuracy", patience=1)
+            callbacks.append(early_stopping)
+
         epochs = int(iterations * self.batch_size / x_train.shape[0])
-        self._model.fit(x_train, y_train, self.batch_size, epochs, callbacks=[tfmot.sparsity.keras.UpdatePruningStep()])
+        return self._model.fit(x_train, y_train, self.batch_size, epochs, callbacks=callbacks, validation_split=0.2)
 
 
 
@@ -158,6 +164,35 @@ class ConvModel:
             weights = layer.get_weights()
             weights[0] = self._initial_weights[name] * masks[name]
             layer.set_weights(weights)
+
+    def set_pruning_random_init(self, prune_percentages=None):
+        """
+        This method resets the network, applies pruning that will be used on next training round and re-initializes
+        the unpruned weights to their initial values.
+        :param prune_percentages: Dictionary of pruning values to use. Eg. { 'conv-1': 0.2, ... }
+        """
+
+        # Create a mask based on the current values in the network
+        masks = {}
+        for name, weights in self._get_trainable_weights().items():
+            masks[name] = np.where(weights != 0, 1, 0)
+
+        # Set new prune percentages and rebuild
+        self._prune_percentages = prune_percentages
+        self._build()
+        self._compile()
+
+        # Set initial weights and mask already pruned values.
+        # So when we start the training it will prune away the values that was pruned in the previous training round
+        # plus (p - p_previous) % of the lowest values where p is the current pruning amount and p_previous was the
+        # pruning percentage from the previous training session
+        for name in self._weight_layers:
+            layer = self._get_layer(name)
+            weights = layer.get_weights()
+            weights[0] = self._initial_weights[name] * masks[name]
+            layer.set_weights(weights)
+
+
 
 
     def _get_trainable_weights(self):
