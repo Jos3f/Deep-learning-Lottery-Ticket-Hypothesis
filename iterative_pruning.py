@@ -8,9 +8,6 @@ from tensorflow import keras
 
 from datetime import datetime
 
-
-
-
 class Model:
     """
     Model class with the functions needed for iterative pruning
@@ -91,6 +88,9 @@ class IterativeTrainer:
         """
         Train iteratively
         """
+        # dictionaries with our results:
+        winning_result = {}
+
         now = datetime.now()
         now_str = now.strftime("%Y_%m_%d_%H_%M_%S")
         result_file = "experiment_" + name + "_" + now_str + ".txt"
@@ -104,12 +104,31 @@ class IterativeTrainer:
         eval = self.model.evaluate(x_test, y_test)
 
         f = open("results/" + result_file, "a+")
-        f.write("Iteration 0\nEarly_stopping_at_epoch: {}\nTrain_loss: "
-                "{}\nTrain_acc: {}\nTest_loss: {}\nTest_acc: {}".format(
+        f.write("+Iteration 0\n+Early_stopping_at_epoch: {}\n+Train_loss: "
+                "{}\n+Train_acc: {}\n+Test_loss: {}\n+Test_acc: {}".format(
             len(history.history['loss']), history.history["loss"][-1], history.history["accuracy"][-1],
             eval[0], eval[1]
         ))
         f.close()
+
+        print("Random init")
+        # train and evaluate a reinitialized model
+        self.model.set_pruning_random_init()
+        history = self.model.train(x_train, y_train, iterations, early_stopping)
+        eval = self.model.evaluate(x_test, y_test)
+        self.model.reset_to_old_weights()
+
+        f = open("results/" + result_file, "a+")
+        f.write("\n\n#Iteration {}\n#Early_stopping_at_epoch: {}\n#Train_loss: "
+                "{}\n#Train_acc: {}\n#Test_loss: {}\n#Test_acc: {}".format(0,
+                                                                           len(history.history['loss']),
+                                                                           history.history["loss"][-1],
+                                                                           history.history["accuracy"][-1],
+                                                                           eval[0], eval[1]
+                                                                           ))
+        f.close()
+
+
 
         # Initial masks are set to 1. This corresponds to not including all weights
         '''masks = {}
@@ -131,21 +150,31 @@ class IterativeTrainer:
             self.model.set_pruning(temp_pruning_percentages)
 
             # Train and evaluate model
-            history = self.model.train(x_train, y_train, iterations, True)
+            history = self.model.train(x_train, y_train, iterations, early_stopping)
             eval = self.model.evaluate(x_test, y_test)
 
             f = open("results/" + result_file, "a+")
-            f.write("\n\nIteration {}\nPruning_percentages: {}\nEarly_stopping_at_epoch: {}\nTrain_loss: "
-                    "{}\nTrain_acc: {}\nTest_loss: {}\nTest_acc: {}".format( it, temp_pruning_percentages,
+            f.write("\n\n+Iteration {}\n+Pruning_percentages: {}\n+Early_stopping_at_epoch: {}\n+Train_loss: "
+                    "{}\n+Train_acc: {}\n+Test_loss: {}\n+Test_acc: {}".format( it, temp_pruning_percentages,
                 len(history.history['loss']), history.history["loss"][-1], history.history["accuracy"][-1],
                 eval[0], eval[1]
             ))
             f.close()
 
+            print("Random init")
             # train and evaluate a reinitialized model
-            #self.model.train_re(x_train, y_train, iterations, True)
-            #self.model.evaluate(x_test, y_test)
-            #self.model.reset_to_old_weights()
+            self.model.set_pruning_random_init(temp_pruning_percentages)
+            history = self.model.train(x_train, y_train, iterations, early_stopping)
+            eval = self.model.evaluate(x_test, y_test)
+            self.model.reset_to_old_weights()
+
+            f = open("results/" + result_file, "a+")
+            f.write("\n\n#Iteration {}\n#Pruning_percentages: {}\n#Early_stopping_at_epoch: {}\n#Train_loss: "
+                    "{}\n#Train_acc: {}\n#Test_loss: {}\n#Test_acc: {}".format( it, temp_pruning_percentages,
+                len(history.history['loss']), history.history["loss"][-1], history.history["accuracy"][-1],
+                eval[0], eval[1]
+            ))
+            f.close()
 
             '''# Update masks by pruning
             masks = self.prune(masks, layers)
@@ -209,8 +238,9 @@ def convNetExperiment():
     y_test = keras.utils.to_categorical(y_test, K)#[:600]
 
     conv = ConvModel(input_data_shape)
-    pruning = dict((name, 0.2) for name in conv.get_layer_names())
+    pruning = dict((name, 0.2) if name[0] == 'd' else (name, 0.15) for name in conv.get_layer_names())
     iter_trainer = IterativeTrainer(conv, iterations=20, pruning_percentages=pruning)
+    # TODO turning off early stopping may improve results. Stops too early.
     iter_trainer.train_iter(10000, x_train, y_train, x_test,  y_test, early_stopping=True, name="conv")
     return
 

@@ -37,6 +37,9 @@ class Lenet:
         # so we can reset it when we change the pruning
         self._initial_weights = self._get_trainable_weights()
 
+        self._initial_random_weights = None
+        self._last_used_masks = None
+
         return
 
     def _build(self, inp=(28, 28)):
@@ -45,7 +48,7 @@ class Lenet:
         self._model = Sequential()
 
         self._add_layer(Flatten(input_shape=inp))
-
+        # TODO check G.5 INITIALIZATION DISTRIBUTION and G.2 LEARNING RATE
         self._add_layer(Dense(300, name='dense-1', activation="relu", kernel_initializer="glorot_normal"))
         if self._use_dropout: self._add_layer(Dropout(0.2, name='dropout-1'))
         self._add_layer(Dense(100, name='dense-2', activation="relu", kernel_initializer="glorot_normal"))
@@ -98,7 +101,7 @@ class Lenet:
 
         callbacks = [tfmot.sparsity.keras.UpdatePruningStep()]
         if early_stopping:
-            early_stopping = tf.keras.callbacks.EarlyStopping(monitor="accuracy", patience=1)
+            early_stopping = tf.keras.callbacks.EarlyStopping(monitor="val_accuracy", patience=2)
             callbacks.append(early_stopping)
 
         epochs = int(iterations * self.batch_size / x_train.shape[0])
@@ -116,7 +119,6 @@ class Lenet:
 
             # Forgetting about bias for now
             weights[l] = layer.get_weights()[0]
-
         return weights
 
     def set_pruning(self, prune_percentages=None):
@@ -128,8 +130,29 @@ class Lenet:
 
         # Create a mask based on the current values in the network
         masks = {}
+        '''for name, weights in self._get_trainable_weights().items():
+            masks[name] = np.where(weights != 0, 1, 0)'''
+
+        # Updated version, prunes the additional smallest weights apart from the ones in earlier steps.
         for name, weights in self._get_trainable_weights().items():
-            masks[name] = np.where(weights != 0, 1, 0)
+            # Calculate how many weights we need to prune
+            #active_nodes = (masks[name] == 1)  # indices of active nodes
+            #prune_percentages = self.model.get_prune_percentages()
+            prune_count = int(round(prune_percentages[name] * weights.size))
+
+            # Sort by the magnitude of the weights for the weights in our mask and extract the element value where
+            # we have gone past 'prune_count' nodes.
+            cutoff_value = np.sort(np.absolute(weights.ravel()))[prune_count]
+
+            # Update mask by disabling the nodes with magnitude smaller than/equal to our cutoff value
+            # magnitude_under_cutoff = (np.absolute(weights) <= cutoff_value)
+            masks[name] = np.where(np.absolute(weights) > cutoff_value, 1, 0)
+            #updated_masks[name][magnitude_under_cutoff] = 0
+
+            #percentage_test = np.sum(masks[name]) / masks[name].size
+
+        self._last_used_masks = masks
+        #self.last_used_trainable = self._get_trainable_weights()
 
         # Set new prune percentages and rebuild
         self._prune_percentages = prune_percentages
@@ -145,6 +168,46 @@ class Lenet:
             weights = layer.get_weights()
             weights[0] = self._initial_weights[name] * masks[name]
             layer.set_weights(weights)
+
+    def set_pruning_random_init(self, prune_percentages=None):
+        """
+        This method resets the network, applies pruning that will be used on next training round and re-initializes
+        the unpruned weights to their initial values.
+        :param prune_percentages: Dictionary of pruning values to use. Eg. { 'conv-1': 0.2, ... }
+        """
+
+        self.last_used_trainable = self._get_trainable_weights()
+        # Create a mask based on the current values in the network
+        masks = self._last_used_masks
+
+
+
+        # Set new prune percentages and rebuild
+        self._prune_percentages = prune_percentages
+        self._build()
+        self._compile()
+
+        if self._initial_random_weights is None:
+            self._initial_random_weights = self._get_trainable_weights()
+            return
+
+        # Set initial weights and mask already pruned values.
+        # So when we start the training it will prune away the values that was pruned in the previous training round
+        # plus (p - p_previous) % of the lowest values where p is the current pruning amount and p_previous was the
+        # pruning percentage from the previous training session
+        for name in self._weight_layers:
+            layer = self._get_layer(name)
+            weights = layer.get_weights()
+            weights[0] = self._initial_random_weights[name] * masks[name]
+            layer.set_weights(weights)
+
+    def reset_to_old_weights(self):
+        for name, weights_m in self.last_used_trainable.items():
+            layer = self._get_layer(name)
+            weights = layer.get_weights()
+            weights[0] = weights_m
+            layer.set_weights(weights)
+        pass
 
     def get_prune_percentages(self):
         """
