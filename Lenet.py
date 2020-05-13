@@ -101,7 +101,7 @@ class Lenet:
 
         callbacks = [tfmot.sparsity.keras.UpdatePruningStep()]
         if early_stopping:
-            early_stopping = tf.keras.callbacks.EarlyStopping(monitor="val_accuracy", patience=2)
+            early_stopping = tf.keras.callbacks.EarlyStopping(monitor="val_accuracy", patience=1)
             callbacks.append(early_stopping)
 
         epochs = int(iterations * self.batch_size / x_train.shape[0])
@@ -117,7 +117,7 @@ class Lenet:
         for l in self._weight_layers:
             layer = self._get_layer(l)
 
-            # Forgetting about bias for now
+            # Forgetting about bias for now TODO
             weights[l] = layer.get_weights()[0]
         return weights
 
@@ -134,6 +134,7 @@ class Lenet:
             masks[name] = np.where(weights != 0, 1, 0)'''
 
         # Updated version, prunes the additional smallest weights apart from the ones in earlier steps.
+        # TODO cleanup
         for name, weights in self._get_trainable_weights().items():
             # Calculate how many weights we need to prune
             #active_nodes = (masks[name] == 1)  # indices of active nodes
@@ -176,7 +177,9 @@ class Lenet:
         :param prune_percentages: Dictionary of pruning values to use. Eg. { 'conv-1': 0.2, ... }
         """
 
-        self.last_used_trainable = self._get_trainable_weights()
+        # Checkpoint
+        # self.last_used_trainable = self._get_trainable_weights()
+
         # Create a mask based on the current values in the network
         masks = self._last_used_masks
 
@@ -200,6 +203,10 @@ class Lenet:
             weights = layer.get_weights()
             weights[0] = self._initial_random_weights[name] * masks[name]
             layer.set_weights(weights)
+
+    def checkpoint_weights(self):
+        self.last_used_trainable = self._get_trainable_weights()
+
 
     def reset_to_old_weights(self):
         for name, weights_m in self.last_used_trainable.items():

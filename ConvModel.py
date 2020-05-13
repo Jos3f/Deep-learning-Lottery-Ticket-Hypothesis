@@ -44,6 +44,10 @@ class ConvModel:
         # so we can reset it when we change the pruning
         self._initial_weights = self._get_trainable_weights()
 
+        # Save last used masks so that it can be used when we reinitialize the layers
+        self._initial_random_weights = None
+        self._last_used_masks = None
+
     def _build(self):
         """
         Builds the model from scratch. If we have set the pruning percentages we will build the model with pruning.
@@ -129,12 +133,14 @@ class ConvModel:
         """
 
         callbacks = [tfmot.sparsity.keras.UpdatePruningStep()]
+        val_split = 0.0
         if early_stopping:
-            early_stopping = tf.keras.callbacks.EarlyStopping(monitor="accuracy", patience=1)
+            early_stopping = tf.keras.callbacks.EarlyStopping(monitor="val_loss", patience=2) # TODO maybe change criteria
+            val_split = 0.2
             callbacks.append(early_stopping)
 
-        epochs = int(iterations * self.batch_size / x_train.shape[0])
-        return self._model.fit(x_train, y_train, self.batch_size, epochs, callbacks=callbacks, validation_split=0.2)
+        epochs = int(iterations * self.batch_size / (x_train.shape[0] * (1 - val_split) ))
+        return self._model.fit(x_train, y_train, self.batch_size, epochs, callbacks=callbacks, validation_split=val_split)
 
 
 
@@ -147,8 +153,29 @@ class ConvModel:
 
         # Create a mask based on the current values in the network
         masks = {}
+        '''for name, weights in self._get_trainable_weights().items():
+            masks[name] = np.where(weights != 0, 1, 0)'''
+
+        # Updated version, prunes the additional smallest weights apart from the ones in earlier steps.
+        # TODO cleanup
         for name, weights in self._get_trainable_weights().items():
-            masks[name] = np.where(weights != 0, 1, 0)
+            # Calculate how many weights we need to prune
+            #active_nodes = (masks[name] == 1)  # indices of active nodes
+            #prune_percentages = self.model.get_prune_percentages()
+            prune_count = int(round(prune_percentages[name] * weights.size))
+
+            # Sort by the magnitude of the weights for the weights in our mask and extract the element value where
+            # we have gone past 'prune_count' nodes.
+            cutoff_value = np.sort(np.absolute(weights.ravel()))[prune_count]
+
+            # Update mask by disabling the nodes with magnitude smaller than/equal to our cutoff value
+            # magnitude_under_cutoff = (np.absolute(weights) <= cutoff_value)
+            masks[name] = np.where(np.absolute(weights) > cutoff_value, 1, 0)
+            #updated_masks[name][magnitude_under_cutoff] = 0
+
+            #percentage_test = np.sum(masks[name]) / masks[name].size
+
+        self._last_used_masks = masks
 
         # Set new prune percentages and rebuild
         self._prune_percentages = prune_percentages
@@ -173,14 +200,17 @@ class ConvModel:
         """
 
         # Create a mask based on the current values in the network
-        masks = {}
-        for name, weights in self._get_trainable_weights().items():
-            masks[name] = np.where(weights != 0, 1, 0)
+        masks = self._last_used_masks
+
 
         # Set new prune percentages and rebuild
         self._prune_percentages = prune_percentages
         self._build()
         self._compile()
+
+        if self._initial_random_weights is None:
+            self._initial_random_weights = self._get_trainable_weights()
+            return
 
         # Set initial weights and mask already pruned values.
         # So when we start the training it will prune away the values that was pruned in the previous training round
@@ -189,10 +219,20 @@ class ConvModel:
         for name in self._weight_layers:
             layer = self._get_layer(name)
             weights = layer.get_weights()
-            weights[0] = self._initial_weights[name] * masks[name]
+            weights[0] = self._initial_random_weights[name] * masks[name]
             layer.set_weights(weights)
 
+    def checkpoint_weights(self):
+        self.last_used_trainable = self._get_trainable_weights()
 
+
+    def reset_to_old_weights(self):
+        for name, weights_m in self.last_used_trainable.items():
+            layer = self._get_layer(name)
+            weights = layer.get_weights()
+            weights[0] = weights_m
+            layer.set_weights(weights)
+        pass
 
 
     def _get_trainable_weights(self):
@@ -206,7 +246,7 @@ class ConvModel:
         for l in self._weight_layers:
             layer = self._get_layer(l)
 
-            # Forgetting about bias for now
+            # Forgetting about bias for now TODO
             weights[l] = layer.get_weights()[0]
 
 

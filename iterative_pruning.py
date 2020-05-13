@@ -113,6 +113,7 @@ class IterativeTrainer:
 
         print("Random init")
         # train and evaluate a reinitialized model
+        self.model.checkpoint_weights()
         self.model.set_pruning_random_init()
         history = self.model.train(x_train, y_train, iterations, early_stopping)
         eval = self.model.evaluate(x_test, y_test)
@@ -163,6 +164,7 @@ class IterativeTrainer:
 
             print("Random init")
             # train and evaluate a reinitialized model
+            self.model.checkpoint_weights()
             self.model.set_pruning_random_init(temp_pruning_percentages)
             history = self.model.train(x_train, y_train, iterations, early_stopping)
             eval = self.model.evaluate(x_test, y_test)
@@ -247,10 +249,10 @@ def convNetExperiment():
 
 def main():
     '''Begin with lenet'''
-    lenetModelExperiment()
+    #lenetModelExperiment()
 
     '''Experiment with Convmodel'''
-    #convNetExperiment()
+    convNetExperiment()
 
     # 1: Create model
     # 2: Create IterativeTrainer with model
