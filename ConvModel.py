@@ -135,7 +135,7 @@ class ConvModel:
         callbacks = [tfmot.sparsity.keras.UpdatePruningStep()]
         val_split = 0.0
         if early_stopping:
-            early_stopping = tf.keras.callbacks.EarlyStopping(monitor="val_loss", patience=2) # TODO maybe change criteria
+            early_stopping = tf.keras.callbacks.EarlyStopping(monitor="val_loss", patience=3) # TODO maybe change criteria
             val_split = 0.2
             callbacks.append(early_stopping)
 

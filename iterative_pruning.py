@@ -243,7 +243,7 @@ def convNetExperiment():
     pruning = dict((name, 0.2) if name[0] == 'd' else (name, 0.15) for name in conv.get_layer_names())
     iter_trainer = IterativeTrainer(conv, iterations=20, pruning_percentages=pruning)
     # TODO turning off early stopping may improve results. Stops too early.
-    iter_trainer.train_iter(10000, x_train, y_train, x_test,  y_test, early_stopping=True, name="conv")
+    iter_trainer.train_iter(30000, x_train, y_train, x_test,  y_test, early_stopping=True, name="conv")
     return
 
 
