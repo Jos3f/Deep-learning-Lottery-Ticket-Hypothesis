@@ -43,12 +43,14 @@ class Lenet:
         return
 
     def _build(self, inp=(28, 28)):
+        """
+        Builds the model from scratch. If we have set the pruning percentages we will build the model with pruning.
+        """
 
         self._weight_layers = []
         self._model = Sequential()
 
         self._add_layer(Flatten(input_shape=inp))
-        # TODO check G.5 INITIALIZATION DISTRIBUTION and G.2 LEARNING RATE
         self._add_layer(Dense(300, name='dense-1', activation="relu", kernel_initializer="glorot_normal"))
         if self._use_dropout: self._add_layer(Dropout(0.2, name='dropout-1'))
         self._add_layer(Dense(100, name='dense-2', activation="relu", kernel_initializer="glorot_normal"))
@@ -96,16 +98,18 @@ class Lenet:
         :param x_train: training inputs
         :param y_train: training labels
         :param iterations: number of iterations to run, will be rounded to nearest epoch count
-
+        :param early_stopping: True if early stopping should be used
         """
 
         callbacks = [tfmot.sparsity.keras.UpdatePruningStep()]
+        val_split = 0.0
         if early_stopping:
             early_stopping = tf.keras.callbacks.EarlyStopping(monitor="val_accuracy", patience=1)
             callbacks.append(early_stopping)
+            val_split = 0.2
 
-        epochs = int(iterations * self.batch_size / x_train.shape[0])
-        return self._model.fit(x_train, y_train, self.batch_size, epochs, callbacks=callbacks, validation_split=0.2)
+        epochs = int(iterations * self.batch_size / (x_train.shape[0] * (1 - val_split) ))
+        return self._model.fit(x_train, y_train, self.batch_size, epochs, callbacks=callbacks, validation_split=val_split)
 
     def _get_trainable_weights(self):
         """
@@ -117,7 +121,6 @@ class Lenet:
         for l in self._weight_layers:
             layer = self._get_layer(l)
 
-            # Forgetting about bias for now TODO
             weights[l] = layer.get_weights()[0]
         return weights
 
@@ -130,30 +133,22 @@ class Lenet:
 
         # Create a mask based on the current values in the network
         masks = {}
-        '''for name, weights in self._get_trainable_weights().items():
-            masks[name] = np.where(weights != 0, 1, 0)'''
 
-        # Updated version, prunes the additional smallest weights apart from the ones in earlier steps.
-        # TODO cleanup
+        # Prunes the additional smallest weights apart from the ones in earlier steps. Uses the weights
+        # from the final step in the earlier training session
         for name, weights in self._get_trainable_weights().items():
             # Calculate how many weights we need to prune
-            #active_nodes = (masks[name] == 1)  # indices of active nodes
-            #prune_percentages = self.model.get_prune_percentages()
             prune_count = int(round(prune_percentages[name] * weights.size))
 
-            # Sort by the magnitude of the weights for the weights in our mask and extract the element value where
+            # Sort by the magnitude of the weights for the weights and extract the element value where
             # we have gone past 'prune_count' nodes.
             cutoff_value = np.sort(np.absolute(weights.ravel()))[prune_count]
 
             # Update mask by disabling the nodes with magnitude smaller than/equal to our cutoff value
-            # magnitude_under_cutoff = (np.absolute(weights) <= cutoff_value)
             masks[name] = np.where(np.absolute(weights) > cutoff_value, 1, 0)
-            #updated_masks[name][magnitude_under_cutoff] = 0
 
-            #percentage_test = np.sum(masks[name]) / masks[name].size
-
+        # Store last used mask globally
         self._last_used_masks = masks
-        #self.last_used_trainable = self._get_trainable_weights()
 
         # Set new prune percentages and rebuild
         self._prune_percentages = prune_percentages
@@ -173,28 +168,24 @@ class Lenet:
     def set_pruning_random_init(self, prune_percentages=None):
         """
         This method resets the network, applies pruning that will be used on next training round and re-initializes
-        the unpruned weights to their initial values.
+        the unpruned weights to random weights.
         :param prune_percentages: Dictionary of pruning values to use. Eg. { 'conv-1': 0.2, ... }
         """
 
-        # Checkpoint
-        # self.last_used_trainable = self._get_trainable_weights()
-
-        # Create a mask based on the current values in the network
+        # Use the most recent masks
         masks = self._last_used_masks
-
-
 
         # Set new prune percentages and rebuild
         self._prune_percentages = prune_percentages
         self._build()
         self._compile()
 
+        # Use the random weights
         if self._initial_random_weights is None:
             self._initial_random_weights = self._get_trainable_weights()
             return
 
-        # Set initial weights and mask already pruned values.
+        # Set weights and mask already pruned values.
         # So when we start the training it will prune away the values that was pruned in the previous training round
         # plus (p - p_previous) % of the lowest values where p is the current pruning amount and p_previous was the
         # pruning percentage from the previous training session
@@ -205,10 +196,12 @@ class Lenet:
             layer.set_weights(weights)
 
     def checkpoint_weights(self):
+        """Create a check point so that we do not lose trained weights if needed for pruning"""
         self.last_used_trainable = self._get_trainable_weights()
 
 
     def reset_to_old_weights(self):
+        """Reset the model to the weights that are in our check point"""
         for name, weights_m in self.last_used_trainable.items():
             layer = self._get_layer(name)
             weights = layer.get_weights()
@@ -225,7 +218,7 @@ class Lenet:
     def get_layer_names(self):
         """
         Returns the relevant layer names in an array. This can be used to set pruning values
-        :return: Array, eg. ['conv-1', 'conv-2', ... 'dense-1', ...]
+        :return: Array, eg. ['dense-1', 'dense-2', ... 'dense-k', ...]
         """
         return self._weight_layers
 
